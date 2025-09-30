@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tcm-local-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: tcm
+      TZ: Asia/Bangkok
+    ports:
+      - "5433:5432" # chỉ local
+    volumes:
+      - ./data:/var/lib/postgresql/data
+      - ./backups:/backups
