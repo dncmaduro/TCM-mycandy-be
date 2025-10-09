@@ -18,5 +18,5 @@ COPY --from=builder /app/package*.json ./
 COPY .env.staging .env
 
 ENV NODE_ENV=staging
-EXPOSE 3333
+EXPOSE 3334
 CMD ["node", "dist/main.js"]
