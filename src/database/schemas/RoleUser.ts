@@ -1,4 +1,4 @@
-import { Document, Schema } from "mongoose"
+import { Document, model, Schema } from "mongoose"
 
 export type Role = "user" | "admin" | "superadmin"
 
@@ -21,7 +21,4 @@ export const RoleUserSchema = new Schema<RoleUser>({
 // One role per user enforced by unique userId
 // Remove composite unique index
 
-export const RoleUserModel = {
-  name: "RoleUser",
-  schema: RoleUserSchema
-}
+export const RoleUserModel = model<RoleUser>("RoleUser", RoleUserSchema)

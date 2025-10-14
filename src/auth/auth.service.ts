@@ -52,7 +52,7 @@ export class AuthService {
       this.log.error(
         `Token exchange failed: ${err.response?.status} ${JSON.stringify(err.response?.data)}`
       )
-      throw err
+      throw new BadRequestException("Đổi code lấy token thất bại")
     }
 
     const { access_token, refresh_token, id_token, expires_in, scope } =
@@ -124,7 +124,7 @@ export class AuthService {
   async refreshTokens(refreshTokenRaw: string) {
     const refreshSecret =
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET!
-    if (!refreshTokenRaw) throw new BadRequestException("Missing refresh token")
+    if (!refreshTokenRaw) throw new BadRequestException("Thiếu refresh token")
     try {
       const decoded = this.jwtService.verify(refreshTokenRaw, {
         secret: refreshSecret
@@ -133,9 +133,10 @@ export class AuthService {
       const session = await this.refreshSessionModel
         .findOne({ userId: decoded.sub, hashedToken: hash, revokedAt: null })
         .exec()
-      if (!session) throw new UnauthorizedException("Invalid refresh token")
+      if (!session)
+        throw new UnauthorizedException("Refresh token không hợp lệ")
       if (session.expiresAt.getTime() < Date.now())
-        throw new UnauthorizedException("Refresh token expired")
+        throw new UnauthorizedException("Refresh token đã hết hạn")
 
       session.revokedAt = new Date()
       await session.save()
@@ -174,13 +175,13 @@ export class AuthService {
       )
         throw e
       if (e?.name === "TokenExpiredError")
-        throw new UnauthorizedException("Refresh token expired")
-      throw new UnauthorizedException("Invalid refresh token")
+        throw new UnauthorizedException("Refresh token đã hết hạn")
+      throw new UnauthorizedException("Refresh token không hợp lệ")
     }
   }
 
   async logout(refreshTokenRaw: string) {
-    if (!refreshTokenRaw) throw new BadRequestException("Missing refresh token")
+    if (!refreshTokenRaw) throw new BadRequestException("Thiếu refresh token")
     const hash = createHash("sha256").update(refreshTokenRaw).digest("hex")
     const session = await this.refreshSessionModel
       .findOne({ hashedToken: hash, revokedAt: null })

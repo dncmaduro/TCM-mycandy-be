@@ -20,7 +20,7 @@ export class RoleUsersService {
   async setRole(userId: string, role: Role): Promise<Role> {
     const valid: Role[] = ["user", "admin", "superadmin"]
     if (!valid.includes(role))
-      throw new BadRequestException("Invalid role value")
+      throw new BadRequestException("Giá trị role không hợp lệ")
     const res = await this.roleUserModel
       .findOneAndUpdate(
         { userId },
