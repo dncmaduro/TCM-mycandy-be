@@ -43,6 +43,20 @@ export class UsersController {
     return res
   }
 
+  @Get("public/search")
+  async searchPublic(
+    @Query("searchText") searchText?: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string
+  ) {
+    const res = await this.usersService.searchUsersPublic({
+      searchText,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined
+    })
+    return res
+  }
+
   @Get(":id")
   @UseGuards(JwtAuthGuard)
   async getById(@Param("id") id: string) {

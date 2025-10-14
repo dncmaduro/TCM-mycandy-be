@@ -3,6 +3,7 @@ import { MongooseModule } from "@nestjs/mongoose"
 import { UserSchema } from "./schemas/User"
 import { OAuthSchema } from "./schemas/OAuth"
 import { RoleUserSchema } from "./schemas/RoleUser"
+import { TaskSchema } from "./schemas/Task"
 
 @Module({
   imports: [
@@ -18,6 +19,10 @@ import { RoleUserSchema } from "./schemas/RoleUser"
       {
         name: "RoleUser",
         schema: RoleUserSchema
+      },
+      {
+        name: "Task",
+        schema: TaskSchema
       }
     ])
   ],

@@ -30,10 +30,10 @@ export class RolesGuard implements CanActivate {
 
     const req = context.switchToHttp().getRequest<Request>()
     const auth = req.headers.authorization
-    if (!auth) throw new ForbiddenException("Missing Authorization header")
+    if (!auth) throw new ForbiddenException("Thiếu header Authorization")
     const [scheme, token] = auth.split(" ")
     if (scheme !== "Bearer" || !token)
-      throw new ForbiddenException("Invalid Authorization format")
+      throw new ForbiddenException("Định dạng Authorization không hợp lệ")
 
     let sub: string
     try {
@@ -42,7 +42,7 @@ export class RolesGuard implements CanActivate {
       }) as { sub: string }
       sub = payload.sub
     } catch {
-      throw new ForbiddenException("Invalid access token")
+      throw new ForbiddenException("Access token không hợp lệ")
     }
 
     const doc = await this.roleUserModel
@@ -52,7 +52,7 @@ export class RolesGuard implements CanActivate {
     const current = doc?.role
 
     const ok = current ? requiredRoles.includes(current) : false
-    if (!ok) throw new ForbiddenException("Insufficient role")
+    if (!ok) throw new ForbiddenException("Không đủ quyền (role)")
     return true
   }
 }

@@ -25,10 +25,10 @@ export class JwtAuthGuard implements CanActivate {
     const auth =
       req.headers.authorization ||
       (req.headers.Authorization as string | undefined)
-    if (!auth) throw new UnauthorizedException("Missing Authorization header")
+    if (!auth) throw new UnauthorizedException("Thiếu header Authorization")
     const [scheme, token] = auth.split(" ")
     if (scheme !== "Bearer" || !token)
-      throw new UnauthorizedException("Invalid Authorization format")
+      throw new UnauthorizedException("Định dạng Authorization không hợp lệ")
     try {
       const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: process.env.JWT_SECRET!
@@ -37,8 +37,8 @@ export class JwtAuthGuard implements CanActivate {
       return true
     } catch (e: any) {
       if (e?.name === "TokenExpiredError")
-        throw new UnauthorizedException("Access token expired")
-      throw new UnauthorizedException("Invalid access token")
+        throw new UnauthorizedException("Access token đã hết hạn")
+      throw new UnauthorizedException("Access token không hợp lệ")
     }
   }
 }

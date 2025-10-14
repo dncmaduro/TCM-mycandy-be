@@ -97,7 +97,7 @@ export class UsersService {
 
         // userRes is a ModifyResult-like object when includeResultMetadata is true
         const userDoc = (userRes as unknown as { value: User | null }).value
-        if (!userDoc) throw new Error("Upsert user failed")
+        if (!userDoc) throw new Error("Upsert user thất bại")
 
         userId = userDoc._id as unknown as Types.ObjectId
         const upserted = (
@@ -145,7 +145,7 @@ export class UsersService {
         .lean<Lean<User>>()
         .exec()
 
-      if (!user) throw new Error("User not found after upsert")
+      if (!user) throw new Error("Không tìm thấy user sau khi upsert")
 
       return { user, firstLogin }
     } finally {
@@ -325,5 +325,58 @@ export class UsersService {
     })
 
     return { data, totalPages }
+  }
+
+  async searchUsersPublic(params: {
+    searchText?: string
+    page?: number
+    limit?: number
+  }): Promise<{
+    data: Array<{
+      _id: Types.ObjectId
+      name?: string
+      email: string
+      avatarUrl?: string
+    }>
+    totalPages: number
+  }> {
+    const { searchText } = params
+    const page = Math.max(1, Number(params.page) || 1)
+    const limit = Math.min(100, Math.max(1, Number(params.limit) || 20))
+
+    const match: any = {}
+    if (searchText && searchText.trim()) {
+      const txt = searchText.trim()
+      match.$or = [
+        { email: { $regex: txt, $options: "i" } },
+        { name: { $regex: txt, $options: "i" } }
+      ]
+    }
+
+    const pipeline: any[] = [
+      { $match: match },
+      { $sort: { createdAt: -1 } },
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          email: 1,
+          avatarUrl: 1
+        }
+      },
+      {
+        $facet: {
+          data: [{ $skip: (page - 1) * limit }, { $limit: limit }],
+          count: [{ $count: "total" }]
+        }
+      }
+    ]
+
+    const agg = await this.userModel.aggregate(pipeline).exec()
+    const first = agg[0] || { data: [], count: [] }
+    const total = (first.count[0]?.total as number) || 0
+    const totalPages = total > 0 ? Math.ceil(total / limit) : 0
+
+    return { data: first.data, totalPages }
   }
 }
