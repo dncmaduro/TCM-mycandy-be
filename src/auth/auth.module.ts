@@ -5,17 +5,20 @@ import { AuthService } from "./auth.service"
 import { JwtModule } from "@nestjs/jwt"
 import { MongooseModule } from "@nestjs/mongoose"
 import { RefreshSessionSchema } from "./refresh-token.schema"
+import { RoleUserSchema } from "../database/schemas/RoleUser"
+import { RolesGuard } from "./roles.guard"
 
 @Module({
   imports: [
     UsersModule,
     JwtModule,
     MongooseModule.forFeature([
-      { name: "RefreshSession", schema: RefreshSessionSchema }
+      { name: "RefreshSession", schema: RefreshSessionSchema },
+      { name: "RoleUser", schema: RoleUserSchema }
     ])
   ],
   controllers: [AuthController],
-  providers: [AuthService],
-  exports: [AuthService]
+  providers: [AuthService, RolesGuard],
+  exports: [AuthService, RolesGuard]
 })
 export class AuthModule {}

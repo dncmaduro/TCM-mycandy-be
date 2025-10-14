@@ -12,7 +12,6 @@ async function bootstrap() {
   try {
     await app.listen(PORT, () => {
       console.log(`✅ Server ready and listening on PORT ${PORT}`)
-      console.log(`📡 API endpoints discovery running in background...`)
     })
   } catch (error) {
     console.log("❌ Failed to start server:", error)
