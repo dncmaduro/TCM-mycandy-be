@@ -10,6 +10,7 @@ import {
 } from "mongoose"
 import { User } from "../database/schemas/User"
 import { OAuth } from "../database/schemas/OAuth"
+import { RoleUser, Role } from "../database/schemas/RoleUser"
 
 // A minimal Lean type for Mongoose v8 (since LeanDocument is not exported)
 type Lean<T> = Omit<T, keyof Document> & { _id: Types.ObjectId }
@@ -40,7 +41,8 @@ const CAL_SCOPE = "https://www.googleapis.com/auth/calendar"
 export class UsersService {
   constructor(
     @InjectModel("User") readonly userModel: Model<User>,
-    @InjectModel("OAuth") readonly oauthModel: Model<OAuth>
+    @InjectModel("OAuth") readonly oauthModel: Model<OAuth>,
+    @InjectModel("RoleUser") readonly roleUserModel: Model<RoleUser>
   ) {}
 
   /**
@@ -156,18 +158,80 @@ export class UsersService {
     userId: string,
     actedBy: string
   ): Promise<Lean<User> | null> {
+    if (!Types.ObjectId.isValid(userId)) return null
+
     const update: UpdateQuery<User> = {
       $set: {
         status: "active",
         approvedAt: new Date(),
         ...(Types.ObjectId.isValid(actedBy)
           ? { approvedBy: new Types.ObjectId(actedBy) }
-          : {})
+          : {}),
+        rejectedReason: null
       }
     }
 
     return this.userModel
-      .findByIdAndUpdate(userId, update, { new: true })
+      .findOneAndUpdate(
+        {
+          _id: userId,
+          status: { $in: ["pending", "suspended"] }
+        } as FilterQuery<User>,
+        update,
+        { new: true }
+      )
+      .lean<Lean<User>>()
+      .exec()
+  }
+
+  /** Reject user: chỉ từ trạng thái pending */
+  async rejectUser(
+    userId: string,
+    reason: string,
+    actedBy: string
+  ): Promise<Lean<User> | null> {
+    if (!Types.ObjectId.isValid(userId)) return null
+
+    const update: UpdateQuery<User> = {
+      $set: {
+        status: "rejected",
+        rejectedReason: reason?.trim() || "",
+        approvedBy: null,
+        approvedAt: null,
+        updatedAt: new Date()
+      }
+    }
+
+    return this.userModel
+      .findOneAndUpdate(
+        { _id: userId, status: "pending" } as FilterQuery<User>,
+        update,
+        { new: true }
+      )
+      .lean<Lean<User>>()
+      .exec()
+  }
+
+  /** Suspend user: chỉ từ trạng thái active */
+  async suspendUser(
+    userId: string,
+    actedBy: string
+  ): Promise<Lean<User> | null> {
+    if (!Types.ObjectId.isValid(userId)) return null
+
+    const update: UpdateQuery<User> = {
+      $set: {
+        status: "suspended",
+        updatedAt: new Date()
+      }
+    }
+
+    return this.userModel
+      .findOneAndUpdate(
+        { _id: userId, status: "active" } as FilterQuery<User>,
+        update,
+        { new: true }
+      )
       .lean<Lean<User>>()
       .exec()
   }
@@ -175,5 +239,91 @@ export class UsersService {
   async findByIdLean(id: string): Promise<Lean<User> | null> {
     if (!Types.ObjectId.isValid(id)) return null
     return this.userModel.findById(id).lean<Lean<User>>().exec()
+  }
+
+  async getByEmailLean(email: string): Promise<Lean<User> | null> {
+    const e = email.trim().toLowerCase()
+    return this.userModel.findOne({ email: e }).lean<Lean<User>>().exec()
+  }
+
+  async searchUsers(params: {
+    searchText?: string
+    role?: Role
+    page?: number
+    limit?: number
+  }): Promise<{ data: Lean<User>[]; totalPages: number }> {
+    const { searchText, role } = params
+    const page = Math.max(1, Number(params.page) || 1)
+    const limit = Math.min(100, Math.max(1, Number(params.limit) || 20))
+
+    const match: any = {}
+    if (searchText && searchText.trim()) {
+      const txt = searchText.trim()
+      match.$or = [
+        { email: { $regex: txt, $options: "i" } },
+        { name: { $regex: txt, $options: "i" } }
+      ]
+    }
+
+    const pipeline: any[] = []
+    if (Object.keys(match).length) pipeline.push({ $match: match })
+
+    // Lookup roles from roleusers (userId stored as string)
+    const lookupPipeline: any[] = [
+      {
+        $match: {
+          $expr: {
+            $and: [
+              { $eq: ["$userId", "$$uid"] },
+              ...(role ? [{ $eq: ["$role", role] }] : [])
+            ]
+          }
+        }
+      },
+      { $project: { _id: 0, role: 1 } }
+    ]
+
+    pipeline.push({
+      $addFields: { _idStr: { $toString: "$_id" } }
+    })
+    pipeline.push({
+      $lookup: {
+        from: "roleusers",
+        let: { uid: "$_idStr" },
+        pipeline: lookupPipeline,
+        as: "roles"
+      }
+    })
+
+    if (role) {
+      pipeline.push({ $match: { roles: { $ne: [] } } })
+    }
+
+    pipeline.push(
+      {
+        $sort: { createdAt: -1 }
+      },
+      {
+        $facet: {
+          data: [{ $skip: (page - 1) * limit }, { $limit: limit }],
+          count: [{ $count: "total" }]
+        }
+      }
+    )
+
+    const agg = await this.userModel.aggregate(pipeline).exec()
+    const first = agg[0] || { data: [], count: [] }
+    const total = (first.count[0]?.total as number) || 0
+    const totalPages = total > 0 ? Math.ceil(total / limit) : 0
+
+    // remove roles helper field from output
+    const data = (first.data as any[]).map((d) => {
+      // strip helper fields if any
+      delete d._idStr
+      delete d.roles
+      return d as Lean<User>
+    })
+
+    return { data, totalPages }
   }
 }

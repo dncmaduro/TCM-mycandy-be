@@ -4,6 +4,7 @@ import { DatabaseModule } from "./database/database.module"
 import { MongooseModule } from "@nestjs/mongoose"
 import { AuthModule } from "./auth/auth.module"
 import { UsersModule } from "./users/users.module"
+import { RoleUsersModule } from "./roleusers/roleusers.module"
 
 @Module({
   imports: [
@@ -13,7 +14,8 @@ import { UsersModule } from "./users/users.module"
       dbName: "data"
     }),
     AuthModule,
-    UsersModule
+    UsersModule,
+    RoleUsersModule
   ],
   controllers: [],
   providers: []
