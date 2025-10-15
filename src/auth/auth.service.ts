@@ -192,4 +192,24 @@ export class AuthService {
     }
     return { success: true }
   }
+
+  async validateAccessToken(
+    accessToken: string
+  ): Promise<{ valid: boolean; payload?: any; error?: string }> {
+    if (!accessToken) {
+      return { valid: false, error: "Thiếu access token" }
+    }
+
+    try {
+      const payload = this.jwtService.verify(accessToken, {
+        secret: process.env.JWT_SECRET!
+      })
+      return { valid: true, payload }
+    } catch (e: any) {
+      if (e?.name === "TokenExpiredError") {
+        return { valid: false, error: "Access token đã hết hạn" }
+      }
+      return { valid: false, error: "Access token không hợp lệ" }
+    }
+  }
 }
