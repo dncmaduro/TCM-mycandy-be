@@ -4,6 +4,7 @@ import { UserSchema } from "./schemas/User"
 import { OAuthSchema } from "./schemas/OAuth"
 import { RoleUserSchema } from "./schemas/RoleUser"
 import { TaskSchema } from "./schemas/Task"
+import { TaskTagSchema } from "./schemas/TaskTag"
 
 @Module({
   imports: [
@@ -23,6 +24,10 @@ import { TaskSchema } from "./schemas/Task"
       {
         name: "Task",
         schema: TaskSchema
+      },
+      {
+        name: "TaskTag",
+        schema: TaskTagSchema
       }
     ])
   ],
