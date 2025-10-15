@@ -6,6 +6,7 @@ import { AuthModule } from "./auth/auth.module"
 import { UsersModule } from "./users/users.module"
 import { RoleUsersModule } from "./roleusers/roleusers.module"
 import { TasksModule } from "./tasks/tasks.module"
+import { TaskTagsModule } from "./tasktags/tasktags.module"
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { TasksModule } from "./tasks/tasks.module"
     AuthModule,
     UsersModule,
     RoleUsersModule,
-    TasksModule
+    TasksModule,
+    TaskTagsModule
   ],
   controllers: [],
   providers: []
