@@ -21,4 +21,9 @@ export class AuthController {
   async logout(@Body() body: { refreshToken: string }) {
     return this.authService.logout(body.refreshToken)
   }
+
+  @Post("validate")
+  async validateToken(@Body() body: { accessToken: string }) {
+    return this.authService.validateAccessToken(body.accessToken)
+  }
 }
