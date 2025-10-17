@@ -5,26 +5,37 @@ import * as express from "express"
 import serverless from "serverless-http"
 
 const expressApp = express()
-let handler: any = null
+let cachedServer: any = null
 
 async function bootstrap() {
+  if (cachedServer) {
+    return cachedServer
+  }
+
   const app = await NestFactory.create(
     AppModule,
     new ExpressAdapter(expressApp)
   )
-  const { PORT } = process.env
+
   app.setGlobalPrefix("api/v1")
-  app.enableCors()
-  expressApp.use(express.json())
+  app.enableCors({
+    origin: true,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  })
+
   await app.init()
-  handler = serverless(expressApp)
+  cachedServer = serverless(expressApp, {
+    binary: ["image/*", "application/pdf"]
+  })
+
+  return cachedServer
 }
 
 export default async function (req: any, res: any) {
-  if (!handler) {
-    await bootstrap()
-  }
-  return handler(req, res)
+  const server = await bootstrap()
+  return server(req, res)
 }
 
 // Ensure CommonJS consumers (Vercel builder) get the function on module.exports
