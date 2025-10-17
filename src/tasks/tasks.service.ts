@@ -12,6 +12,7 @@ type Lean<T> = Omit<T, keyof Document> & { _id: Types.ObjectId }
 
 type CreateTaskInput = {
   title: string
+  sprint: string
   description?: string
   parentTaskId?: string
   priority?: TaskPriority
@@ -28,9 +29,11 @@ type UpdateTaskInput = {
   assignedTo?: string
   dueDate?: Date
   tags?: string[]
+  sprint?: string
 }
 
 type SearchTasksInput = {
+  sprint?: string
   searchText?: string
   createdBy?: string
   assignedTo?: string
@@ -57,6 +60,13 @@ export class TasksService {
       createdBy: new Types.ObjectId(createdBy),
       tags: input.tags || []
     }
+
+    if (!input.sprint || !Types.ObjectId.isValid(input.sprint)) {
+      throw new BadRequestException("Sprint không hợp lệ")
+    }
+
+    // verify sprint exists and not deleted
+    taskData.sprint = new Types.ObjectId(input.sprint)
 
     if (input.parentTaskId) {
       if (!Types.ObjectId.isValid(input.parentTaskId)) {
@@ -121,6 +131,11 @@ export class TasksService {
     }
     if (input.dueDate !== undefined) updateData.dueDate = input.dueDate
     if (input.tags) updateData.tags = input.tags
+    if (input.sprint !== undefined) {
+      if (!Types.ObjectId.isValid(input.sprint))
+        throw new BadRequestException("Sprint không hợp lệ")
+      updateData.sprint = new Types.ObjectId(input.sprint)
+    }
 
     const updated = await this.taskModel
       .findByIdAndUpdate(taskId, updateData, { new: true })
@@ -195,6 +210,11 @@ export class TasksService {
 
     // Only top-level tasks (not subtasks)
     match.parentTaskId = null
+
+    // Sprint filter
+    if (input.sprint && Types.ObjectId.isValid(input.sprint)) {
+      match.sprint = new Types.ObjectId(input.sprint)
+    }
 
     // Deleted filter
     if (input.deleted === true) {

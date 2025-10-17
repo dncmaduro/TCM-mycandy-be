@@ -5,6 +5,7 @@ import { OAuthSchema } from "./schemas/OAuth"
 import { RoleUserSchema } from "./schemas/RoleUser"
 import { TaskSchema } from "./schemas/Task"
 import { TaskTagSchema } from "./schemas/TaskTag"
+import { SprintSchema } from "./schemas/Sprint"
 
 @Module({
   imports: [
@@ -28,6 +29,10 @@ import { TaskTagSchema } from "./schemas/TaskTag"
       {
         name: "TaskTag",
         schema: TaskTagSchema
+      },
+      {
+        name: "Sprint",
+        schema: SprintSchema
       }
     ])
   ],
