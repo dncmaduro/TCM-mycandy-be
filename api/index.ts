@@ -1,6 +1,6 @@
 import { NestFactory } from "@nestjs/core"
 import { ExpressAdapter } from "@nestjs/platform-express"
-import { AppModule } from "./app.module"
+import { AppModule } from "../src/app.module"
 import express from "express"
 import serverless from "serverless-http"
 
@@ -33,10 +33,7 @@ async function bootstrap() {
   return cachedServer
 }
 
-export default async function (req: any, res: any) {
+export default async function handler(req: any, res: any) {
   const server = await bootstrap()
   return server(req, res)
 }
-
-// Ensure CommonJS consumers (Vercel builder) get the function on module.exports
-;(module as any).exports = (exports as any).default
