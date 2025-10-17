@@ -5,7 +5,7 @@ import {
   BadRequestException
 } from "@nestjs/common"
 import axios from "axios"
-import { UsersService } from "src/users/users.service"
+import { UsersService } from "../users/users.service"
 import { JwtService } from "@nestjs/jwt"
 import { InjectModel } from "@nestjs/mongoose"
 import { Model } from "mongoose"
@@ -86,7 +86,7 @@ export class AuthService {
     const jwtSecret = process.env.JWT_SECRET!
     const refreshSecret = process.env.JWT_REFRESH_SECRET || jwtSecret
 
-    const accessTokenTtlSec = 15 * 60 // 15m
+    const accessTokenTtlSec = 60 * 60 * 24 // 24h
     const refreshTokenTtlSec = 30 * 24 * 60 * 60 // 30d
 
     const payloadApp = {

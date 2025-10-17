@@ -24,6 +24,7 @@ export class TasksController {
     @Body()
     body: {
       title: string
+      sprint: string
       description?: string
       parentTaskId?: string
       priority?: TaskPriority
@@ -55,6 +56,7 @@ export class TasksController {
       assignedTo?: string
       dueDate?: string
       tags?: string[]
+      sprint?: string
     },
     @CurrentUser() user: { sub: string }
   ) {
@@ -100,6 +102,7 @@ export class TasksController {
     @Query("status") status?: TaskStatus,
     @Query("deleted") deleted?: string,
     @Query("tags") tags?: string,
+    @Query("sprint") sprint?: string,
     @Query("page") page?: string,
     @Query("limit") limit?: string
   ) {
@@ -113,6 +116,7 @@ export class TasksController {
       deleted === "true" ? true : deleted === "false" ? false : undefined
 
     return this.tasksService.searchTasks({
+      sprint,
       searchText,
       createdBy,
       assignedTo,

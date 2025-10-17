@@ -7,6 +7,7 @@ import { UsersModule } from "./users/users.module"
 import { RoleUsersModule } from "./roleusers/roleusers.module"
 import { TasksModule } from "./tasks/tasks.module"
 import { TaskTagsModule } from "./tasktags/tasktags.module"
+import { SprintsModule } from "./sprints/sprints.module"
 
 @Module({
   imports: [
@@ -19,7 +20,8 @@ import { TaskTagsModule } from "./tasktags/tasktags.module"
     UsersModule,
     RoleUsersModule,
     TasksModule,
-    TaskTagsModule
+    TaskTagsModule,
+    SprintsModule
   ],
   controllers: [],
   providers: []

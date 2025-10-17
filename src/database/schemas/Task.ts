@@ -13,6 +13,7 @@ export type TaskPriority = "low" | "medium" | "high" | "urgent"
 export interface Task extends Document {
   title: string
   description?: string
+  sprint: Types.ObjectId
   parentTaskId?: Types.ObjectId | null
   status: TaskStatus
   priority: TaskPriority
@@ -30,6 +31,12 @@ export const TaskSchema = new Schema<Task>(
   {
     title: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
+    sprint: {
+      type: Schema.Types.ObjectId,
+      ref: "Sprint",
+      required: true,
+      index: true
+    },
     parentTaskId: { type: Schema.Types.ObjectId, ref: "Task", default: null },
     status: {
       type: String,
