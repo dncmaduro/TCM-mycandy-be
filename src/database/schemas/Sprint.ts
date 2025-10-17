@@ -6,6 +6,7 @@ export interface Sprint extends Document {
   endDate: Date
   createdAt: Date
   updatedAt: Date
+  isCurrent?: boolean
   deletedAt?: Date | null
 }
 
@@ -15,6 +16,7 @@ export const SprintSchema = new Schema<Sprint>({
   endDate: { type: Date, required: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
+  isCurrent: { type: Boolean, default: false },
   deletedAt: { type: Date, default: null }
 })
 

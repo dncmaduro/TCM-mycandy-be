@@ -54,6 +54,22 @@ export class SprintsController {
     })
   }
 
+  @Patch(":id/set-current")
+  @Roles("superadmin")
+  async setCurrentSprint(@Param("id") id: string) {
+    return this.sprintsService.setCurrentSprint(id)
+  }
+
+  @Post(":id/move-tasks-and-set-current")
+  async moveTasksToNewSprint(@Param("id") id: string) {
+    return this.sprintsService.moveTasksToNewSprint(id)
+  }
+
+  @Get("current")
+  async getCurrentSprint() {
+    return this.sprintsService.getCurrentSprint()
+  }
+
   @Get(":id")
   async getSprint(@Param("id") id: string) {
     const sprint = await this.sprintsService.getSprintById(id)

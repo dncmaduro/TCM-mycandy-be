@@ -11,6 +11,8 @@ import {
 } from "@nestjs/common"
 import { TasksService } from "./tasks.service"
 import { JwtAuthGuard } from "../auth/jwt-auth.guard"
+import { RolesGuard } from "../auth/roles.guard"
+import { Roles } from "../auth/roles.decorator"
 import { CurrentUser } from "../auth/current-user.decorator"
 import { TaskStatus, TaskPriority } from "../database/schemas/Task"
 
@@ -133,6 +135,18 @@ export class TasksController {
   async getSubtasks(@Param("id") id: string) {
     const subtasks = await this.tasksService.getSubtasks(id)
     return { subtasks }
+  }
+
+  @Get("stats/current-sprint/my")
+  async getCurrentSprintMyStats(@CurrentUser() user: { sub: string }) {
+    return this.tasksService.getCurrentSprintUserStats(user.sub)
+  }
+
+  @Get("stats/current-sprint/all-users")
+  @UseGuards(RolesGuard)
+  @Roles("admin", "superadmin")
+  async getCurrentSprintAllUsersStats() {
+    return this.tasksService.getCurrentSprintAllUsersStats()
   }
 
   @Get(":id")

@@ -7,6 +7,7 @@ import {
 import { InjectModel } from "@nestjs/mongoose"
 import { Model, Types, Document } from "mongoose"
 import { Task, TaskStatus, TaskPriority } from "../database/schemas/Task"
+import { Sprint } from "../database/schemas/Sprint"
 
 type Lean<T> = Omit<T, keyof Document> & { _id: Types.ObjectId }
 
@@ -47,7 +48,10 @@ type SearchTasksInput = {
 
 @Injectable()
 export class TasksService {
-  constructor(@InjectModel("Task") private readonly taskModel: Model<Task>) {}
+  constructor(
+    @InjectModel("Task") private readonly taskModel: Model<Task>,
+    @InjectModel("Sprint") private readonly sprintModel: Model<Sprint>
+  ) {}
 
   async createTask(
     input: CreateTaskInput,
@@ -283,5 +287,124 @@ export class TasksService {
       .findOne({ _id: taskId, deletedAt: null })
       .lean<Lean<Task>>()
       .exec()
+  }
+
+  async getCurrentSprintUserStats(userId: string): Promise<{
+    new: number
+    in_progress: number
+    reviewing: number
+    completed: number
+  }> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException("User ID không hợp lệ")
+    }
+
+    // Lấy sprint hiện tại
+    const currentSprint = await this.sprintModel
+      .findOne({ isCurrent: true, deletedAt: null })
+      .exec()
+
+    if (!currentSprint) {
+      return { new: 0, in_progress: 0, reviewing: 0, completed: 0 }
+    }
+
+    const pipeline = [
+      {
+        $match: {
+          sprint: currentSprint._id,
+          assignedTo: new Types.ObjectId(userId),
+          deletedAt: null
+        }
+      },
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 }
+        }
+      }
+    ]
+
+    const result = await this.taskModel.aggregate(pipeline).exec()
+
+    const stats = { new: 0, in_progress: 0, reviewing: 0, completed: 0 }
+    result.forEach((item: any) => {
+      if (item._id in stats) {
+        stats[item._id as keyof typeof stats] = item.count
+      }
+    })
+
+    return stats
+  }
+
+  async getCurrentSprintAllUsersStats(): Promise<{
+    users: Array<{
+      userId: Types.ObjectId
+      completed: number
+      reviewing: number
+      total: number
+      completionRate: number
+    }>
+  }> {
+    // Lấy sprint hiện tại
+    const currentSprint = await this.sprintModel
+      .findOne({ isCurrent: true, deletedAt: null })
+      .exec()
+
+    if (!currentSprint) {
+      return { users: [] }
+    }
+
+    const pipeline = [
+      {
+        $match: {
+          sprint: currentSprint._id,
+          assignedTo: { $ne: null },
+          deletedAt: null
+        }
+      },
+      {
+        $group: {
+          _id: "$assignedTo",
+          new: {
+            $sum: { $cond: [{ $eq: ["$status", "new"] }, 1, 0] }
+          },
+          in_progress: {
+            $sum: { $cond: [{ $eq: ["$status", "in_progress"] }, 1, 0] }
+          },
+          completed: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] }
+          },
+          reviewing: {
+            $sum: { $cond: [{ $eq: ["$status", "reviewing"] }, 1, 0] }
+          },
+          total: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          userId: "$_id",
+          _id: 0,
+          new: 1,
+          in_progress: 1,
+          completed: 1,
+          reviewing: 1,
+          total: 1,
+          completionRate: {
+            $cond: [
+              { $eq: ["$total", 0] },
+              0,
+              { $multiply: [{ $divide: ["$completed", "$total"] }, 100] }
+            ]
+          }
+        }
+      },
+      {
+        $sort: { completionRate: -1 as const }
+      }
+    ]
+
+    const result = await this.taskModel.aggregate(pipeline).exec()
+
+    return { users: result }
   }
 }
