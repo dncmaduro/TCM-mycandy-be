@@ -8,6 +8,7 @@ import { RoleUsersModule } from "./roleusers/roleusers.module"
 import { TasksModule } from "./tasks/tasks.module"
 import { TaskTagsModule } from "./tasktags/tasktags.module"
 import { SprintsModule } from "./sprints/sprints.module"
+import { TimeRequestsModule } from "./time-requests/time-requests.module"
 
 @Module({
   imports: [
@@ -21,7 +22,8 @@ import { SprintsModule } from "./sprints/sprints.module"
     RoleUsersModule,
     TasksModule,
     TaskTagsModule,
-    SprintsModule
+    SprintsModule,
+    TimeRequestsModule
   ],
   controllers: [],
   providers: []
