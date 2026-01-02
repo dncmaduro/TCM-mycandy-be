@@ -14,7 +14,7 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard"
 import { RolesGuard } from "../auth/roles.guard"
 import { Roles } from "../auth/roles.decorator"
 import { CurrentUser } from "../auth/current-user.decorator"
-import { TaskStatus, TaskPriority } from "../database/schemas/Task"
+import { TaskPriority } from "../database/schemas/Task"
 
 @Controller("tasks")
 @UseGuards(JwtAuthGuard)
@@ -28,20 +28,23 @@ export class TasksController {
       title: string
       sprint: string
       description?: string
-      parentTaskId?: string
+      aim?: number
+      aimUnit?: string
       priority?: TaskPriority
       assignedTo?: string
       dueDate?: string
       tags?: string[]
+      estimateHours?: number
+      evaluation?: string
     },
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
     const task = await this.tasksService.createTask(
       {
         ...body,
         dueDate: body.dueDate ? new Date(body.dueDate) : undefined
       },
-      user.sub
+      user.profileId
     )
     return { task }
   }
@@ -53,14 +56,18 @@ export class TasksController {
     body: {
       title?: string
       description?: string
-      status?: TaskStatus
+      aim?: number
+      aimUnit?: string
+      progress?: number
       priority?: TaskPriority
       assignedTo?: string
       dueDate?: string
       tags?: string[]
       sprint?: string
+      estimateHours?: number
+      evaluation?: string
     },
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
     const task = await this.tasksService.updateTask(
       id,
@@ -68,7 +75,7 @@ export class TasksController {
         ...body,
         dueDate: body.dueDate ? new Date(body.dueDate) : undefined
       },
-      user.sub
+      user.profileId
     )
     return { task }
   }
@@ -76,21 +83,21 @@ export class TasksController {
   @Delete(":id")
   async deleteTask(
     @Param("id") id: string,
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
-    return this.tasksService.deleteTask(id, user.sub)
+    return this.tasksService.deleteTask(id, user.profileId)
   }
 
   @Post(":id/assign")
   async assignTask(
     @Param("id") id: string,
     @Body() body: { assignedTo: string | null },
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
     const task = await this.tasksService.assignTask(
       id,
       body.assignedTo,
-      user.sub
+      user.profileId
     )
     return { task }
   }
@@ -101,7 +108,6 @@ export class TasksController {
     @Query("createdBy") createdBy?: string,
     @Query("assignedTo") assignedTo?: string,
     @Query("priority") priority?: TaskPriority,
-    @Query("status") status?: TaskStatus,
     @Query("deleted") deleted?: string,
     @Query("tags") tags?: string,
     @Query("sprint") sprint?: string,
@@ -123,7 +129,6 @@ export class TasksController {
       createdBy,
       assignedTo,
       priority,
-      status,
       deleted: deletedBool,
       tags: tagsArray,
       page: page ? parseInt(page, 10) : undefined,
@@ -131,15 +136,9 @@ export class TasksController {
     })
   }
 
-  @Get(":id/subtasks")
-  async getSubtasks(@Param("id") id: string) {
-    const subtasks = await this.tasksService.getSubtasks(id)
-    return { subtasks }
-  }
-
   @Get("stats/current-sprint/my")
-  async getCurrentSprintMyStats(@CurrentUser() user: { sub: string }) {
-    return this.tasksService.getCurrentSprintUserStats(user.sub)
+  async getCurrentSprintMyStats(@CurrentUser() user: { profileId: string }) {
+    return this.tasksService.getCurrentSprintUserStats(user.profileId)
   }
 
   @Get("stats/current-sprint/all-users")

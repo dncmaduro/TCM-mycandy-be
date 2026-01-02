@@ -7,6 +7,8 @@ import { InjectModel } from "@nestjs/mongoose"
 import { Model, Types, Document } from "mongoose"
 import { Sprint } from "../database/schemas/Sprint"
 import { Task } from "../database/schemas/Task"
+import { NotificationsService } from "../notifications/notifications.service"
+import { NotificationsGateway } from "../notifications/notifications.gateway"
 
 type Lean<T> = Omit<T, keyof Document> & { _id: Types.ObjectId }
 
@@ -18,13 +20,17 @@ type CreateSprintInput = {
 
 type GetSprintsInput = {
   limit?: number
+  page?: number
+  deleted?: boolean
 }
 
 @Injectable()
 export class SprintsService {
   constructor(
     @InjectModel("Sprint") private readonly sprintModel: Model<Sprint>,
-    @InjectModel("Task") private readonly taskModel: Model<Task>
+    @InjectModel("Task") private readonly taskModel: Model<Task>,
+    private notificationsService: NotificationsService,
+    private notificationsGateway: NotificationsGateway
   ) {}
 
   async createSprint(input: CreateSprintInput): Promise<Lean<Sprint>> {
@@ -90,17 +96,28 @@ export class SprintsService {
     return { message: "Khôi phục sprint thành công" }
   }
 
-  async getSprints(input: GetSprintsInput): Promise<{ data: Lean<Sprint>[] }> {
+  async getSprints(
+    input: GetSprintsInput
+  ): Promise<{ data: Lean<Sprint>[]; total: number }> {
     const limit = input.limit ? Math.min(100, Math.max(1, input.limit)) : 20
+    const page = input.page ? Math.max(1, input.page) : 1
+    const skip = (page - 1) * limit
+    const deleted = input.deleted ?? false
 
-    const sprints = await this.sprintModel
-      .find({ deletedAt: null })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean<Lean<Sprint>[]>()
-      .exec()
+    const filter = deleted ? { deletedAt: { $ne: null } } : { deletedAt: null }
 
-    return { data: sprints }
+    const [sprints, total] = await Promise.all([
+      this.sprintModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean<Lean<Sprint>[]>()
+        .exec(),
+      this.sprintModel.countDocuments(filter).exec()
+    ])
+
+    return { data: sprints, total }
   }
 
   async getSprintById(sprintId: string): Promise<Lean<Sprint> | null> {
@@ -204,6 +221,35 @@ export class SprintsService {
     await this.sprintModel
       .findByIdAndUpdate(sprintId, { isCurrent: true, updatedAt: new Date() })
       .exec()
+
+    // Gửi notification cho tất cả users có task trong sprint
+    try {
+      const tasks = await this.taskModel
+        .find({
+          sprint: new Types.ObjectId(sprintId),
+          deletedAt: null,
+          assignedTo: { $exists: true, $ne: null }
+        })
+        .lean()
+
+      const userIds = [
+        ...new Set(tasks.map((t) => t.assignedTo?.toString()).filter(Boolean))
+      ] as string[]
+
+      for (const userId of userIds) {
+        const notification = await this.notificationsService.createNotification(
+          {
+            userId,
+            type: "sprint_started",
+            title: "Sprint mới bắt đầu",
+            message: `Sprint "${sprint.name}" đã bắt đầu`
+          }
+        )
+        this.notificationsGateway.sendNotificationToUser(userId, notification)
+      }
+    } catch (error) {
+      console.error("Error sending sprint_started notification:", error)
+    }
 
     return { message: "Đã cập nhật sprint hiện tại" }
   }

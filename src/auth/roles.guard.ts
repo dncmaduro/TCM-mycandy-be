@@ -35,23 +35,24 @@ export class RolesGuard implements CanActivate {
     if (scheme !== "Bearer" || !token)
       throw new ForbiddenException("Định dạng Authorization không hợp lệ")
 
-    let sub: string
+    let profileId: string
     try {
       const payload = this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET!
-      }) as { sub: string }
-      sub = payload.sub
+      }) as { sub: string; profileId: string }
+      profileId = payload.profileId
     } catch {
       throw new ForbiddenException("Access token không hợp lệ")
     }
 
     const doc = await this.roleUserModel
-      .findOne({ userId: sub })
-      .lean<{ role: Role }>()
+      .findOne({ profileId })
+      .lean<{ roles: Role[] }>()
       .exec()
-    const current = doc?.role
+    const currentRoles = doc?.roles || []
 
-    const ok = current ? requiredRoles.includes(current) : false
+    // Check if user has at least one of the required roles
+    const ok = currentRoles.some((role) => requiredRoles.includes(role))
     if (!ok) throw new ForbiddenException("Không đủ quyền (role)")
     return true
   }

@@ -6,8 +6,12 @@ import {
 } from "@nestjs/common"
 import { InjectModel } from "@nestjs/mongoose"
 import { Model, Types, Document } from "mongoose"
-import { Task, TaskStatus, TaskPriority } from "../database/schemas/Task"
+import { Task, TaskPriority } from "../database/schemas/Task"
 import { Sprint } from "../database/schemas/Sprint"
+import { NotificationsService } from "../notifications/notifications.service"
+import { NotificationsGateway } from "../notifications/notifications.gateway"
+import { Profile } from "../database/schemas/Profile"
+import { TaskLogsService } from "../task-logs/task-logs.service"
 
 type Lean<T> = Omit<T, keyof Document> & { _id: Types.ObjectId }
 
@@ -15,22 +19,29 @@ type CreateTaskInput = {
   title: string
   sprint: string
   description?: string
-  parentTaskId?: string
+  aim?: number
+  aimUnit?: string
   priority?: TaskPriority
   assignedTo?: string
   dueDate?: Date
   tags?: string[]
+  estimateHours?: number
+  evaluation?: string
 }
 
 type UpdateTaskInput = {
   title?: string
   description?: string
-  status?: TaskStatus
+  aim?: number
+  aimUnit?: string
+  progress?: number
   priority?: TaskPriority
   assignedTo?: string
   dueDate?: Date
   tags?: string[]
   sprint?: string
+  estimateHours?: number
+  evaluation?: string
 }
 
 type SearchTasksInput = {
@@ -39,18 +50,29 @@ type SearchTasksInput = {
   createdBy?: string
   assignedTo?: string
   priority?: TaskPriority
-  status?: TaskStatus
   deleted?: boolean
   tags?: string[]
   page?: number
   limit?: number
 }
 
+type UserSprintStat = {
+  profile: Lean<Profile>
+  totalTasks: number
+  totalUnits: number
+  completedTasks: number
+  completedUnits: number
+  totalEstimateHours: number
+}
 @Injectable()
 export class TasksService {
   constructor(
     @InjectModel("Task") private readonly taskModel: Model<Task>,
-    @InjectModel("Sprint") private readonly sprintModel: Model<Sprint>
+    @InjectModel("Sprint") private readonly sprintModel: Model<Sprint>,
+    @InjectModel("Profile") private readonly profileModel: Model<Profile>,
+    private notificationsService: NotificationsService,
+    private notificationsGateway: NotificationsGateway,
+    private taskLogsService: TaskLogsService
   ) {}
 
   async createTask(
@@ -61,32 +83,21 @@ export class TasksService {
       title: input.title.trim(),
       description: input.description?.trim(),
       priority: input.priority || "medium",
+      aim: input.aim || 0,
+      aimUnit: input.aimUnit || "",
+      progress: 0,
       createdBy: new Types.ObjectId(createdBy),
-      tags: input.tags || []
+      tags: input.tags || [],
+      estimateHours: input.estimateHours,
+      evaluation: input.evaluation?.trim()
     }
 
     if (!input.sprint || !Types.ObjectId.isValid(input.sprint)) {
       throw new BadRequestException("Sprint không hợp lệ")
     }
 
-    // verify sprint exists and not deleted
     taskData.sprint = new Types.ObjectId(input.sprint)
 
-    if (input.parentTaskId) {
-      if (!Types.ObjectId.isValid(input.parentTaskId)) {
-        throw new BadRequestException("parentTaskId không hợp lệ")
-      }
-      // Kiểm tra task cha tồn tại và task cha không phải là subtask
-      const parent = await this.taskModel.findById(input.parentTaskId).exec()
-      if (!parent || parent.deletedAt)
-        throw new NotFoundException("Task cha không tìm thấy")
-      if (parent.parentTaskId)
-        throw new BadRequestException(
-          "Không thể thêm subtask: task cha đang là subtask"
-        )
-
-      taskData.parentTaskId = new Types.ObjectId(input.parentTaskId)
-    }
     if (input.assignedTo && Types.ObjectId.isValid(input.assignedTo)) {
       taskData.assignedTo = new Types.ObjectId(input.assignedTo)
     }
@@ -95,6 +106,64 @@ export class TasksService {
     }
 
     const task = await this.taskModel.create(taskData)
+
+    // Gửi notification nếu task được assign cho user
+    if (input.assignedTo) {
+      try {
+        const creator = await this.profileModel.findById(createdBy).lean()
+        const notification = await this.notificationsService.createNotification(
+          {
+            userId: input.assignedTo,
+            type: "task_assigned",
+            title: "Bạn được giao task mới",
+            message: `Task "${input.title}" đã được giao cho bạn bởi ${creator?.name || "Admin"}`
+          }
+        )
+        this.notificationsGateway.sendNotificationToUser(
+          input.assignedTo,
+          notification
+        )
+      } catch (error) {
+        console.error("Error sending task_assigned notification:", error)
+      }
+
+      // Tạo task log cho assignment
+      try {
+        const assignedToProfile = await this.profileModel
+          .findById(input.assignedTo)
+          .select("_id name avatarUrl")
+          .lean()
+        const assignedByProfile = await this.profileModel
+          .findById(createdBy)
+          .select("_id name avatarUrl")
+          .lean()
+
+        await this.taskLogsService.createLog({
+          taskId: task._id.toString(),
+          type: "assignment",
+          userId: createdBy,
+          meta: {
+            assignedTo: assignedToProfile
+              ? {
+                  _id: assignedToProfile._id.toString(),
+                  name: assignedToProfile.name,
+                  avatarUrl: assignedToProfile.avatarUrl
+                }
+              : null,
+            assignedBy: assignedByProfile
+              ? {
+                  _id: assignedByProfile._id.toString(),
+                  name: assignedByProfile.name,
+                  avatarUrl: assignedByProfile.avatarUrl
+                }
+              : null
+          }
+        })
+      } catch (error) {
+        console.error("Error creating assignment task log:", error)
+      }
+    }
+
     return task.toObject() as Lean<Task>
   }
 
@@ -121,12 +190,36 @@ export class TasksService {
     if (input.title) updateData.title = input.title.trim()
     if (input.description !== undefined)
       updateData.description = input.description?.trim()
-    if (input.status) {
-      updateData.status = input.status
-      if (input.status === "completed") updateData.completedAt = new Date()
-      else if (task.status === "completed") updateData.completedAt = null
+
+    // Update aim/aimUnit/progress
+    if (input.aim !== undefined) {
+      if (input.aim < 0) {
+        throw new BadRequestException("Aim phải >= 0")
+      }
+      updateData.aim = input.aim
     }
+    if (input.aimUnit) updateData.aimUnit = input.aimUnit
+    if (input.progress !== undefined) {
+      const finalAim = input.aim !== undefined ? input.aim : task.aim
+      if (input.progress < 0 || input.progress > finalAim) {
+        throw new BadRequestException(
+          `Progress phải trong khoảng 0-${finalAim}`
+        )
+      }
+      updateData.progress = input.progress
+
+      // Tự động set completedAt khi progress === aim
+      if (input.progress === finalAim) {
+        updateData.completedAt = new Date()
+      } else if (task.completedAt) {
+        updateData.completedAt = null
+      }
+    }
+
     if (input.priority) updateData.priority = input.priority
+
+    const oldAssignedTo = task.assignedTo?.toString()
+    const oldSprint = task.sprint?.toString()
     if (input.assignedTo !== undefined) {
       updateData.assignedTo =
         input.assignedTo && Types.ObjectId.isValid(input.assignedTo)
@@ -135,6 +228,10 @@ export class TasksService {
     }
     if (input.dueDate !== undefined) updateData.dueDate = input.dueDate
     if (input.tags) updateData.tags = input.tags
+    if (input.estimateHours !== undefined)
+      updateData.estimateHours = input.estimateHours
+    if (input.evaluation !== undefined)
+      updateData.evaluation = input.evaluation?.trim()
     if (input.sprint !== undefined) {
       if (!Types.ObjectId.isValid(input.sprint))
         throw new BadRequestException("Sprint không hợp lệ")
@@ -145,6 +242,200 @@ export class TasksService {
       .findByIdAndUpdate(taskId, updateData, { new: true })
       .lean<Lean<Task>>()
       .exec()
+
+    // Gửi notification khi assignedTo thay đổi
+    if (
+      input.assignedTo !== undefined &&
+      input.assignedTo !== oldAssignedTo &&
+      input.assignedTo
+    ) {
+      try {
+        const updater = await this.profileModel.findById(userId).lean()
+        const notification = await this.notificationsService.createNotification(
+          {
+            userId: input.assignedTo,
+            type: "task_assigned",
+            title: "Bạn được giao task mới",
+            message: `Task "${task.title}" đã được giao cho bạn bởi ${updater?.name || "Admin"}`
+          }
+        )
+        this.notificationsGateway.sendNotificationToUser(
+          input.assignedTo,
+          notification
+        )
+      } catch (error) {
+        console.error("Error sending task_assigned notification:", error)
+      }
+
+      // Tạo task log cho assignment change
+      try {
+        const oldProfile = oldAssignedTo
+          ? await this.profileModel
+              .findById(oldAssignedTo)
+              .select("_id name avatarUrl")
+              .lean()
+          : null
+        const newProfile = await this.profileModel
+          .findById(input.assignedTo)
+          .select("_id name avatarUrl")
+          .lean()
+        const assignedByProfile = await this.profileModel
+          .findById(userId)
+          .select("_id name avatarUrl")
+          .lean()
+        console.log("a")
+
+        await this.taskLogsService.createLog({
+          taskId: taskId,
+          type: "assignment",
+          userId: userId,
+          meta: {
+            oldAssignedTo: oldProfile
+              ? {
+                  _id: oldProfile._id.toString(),
+                  name: oldProfile.name,
+                  avatarUrl: oldProfile.avatarUrl
+                }
+              : null,
+            newAssignedTo: newProfile
+              ? {
+                  _id: newProfile._id.toString(),
+                  name: newProfile.name,
+                  avatarUrl: newProfile.avatarUrl
+                }
+              : null,
+            assignedBy: assignedByProfile
+              ? {
+                  _id: assignedByProfile._id.toString(),
+                  name: assignedByProfile.name,
+                  avatarUrl: assignedByProfile.avatarUrl
+                }
+              : null
+          }
+        })
+      } catch (error) {
+        console.error("Error creating assignment task log:", error)
+      }
+    }
+
+    // Tạo task log cho sprint change
+    if (input.sprint !== undefined && input.sprint !== oldSprint) {
+      try {
+        const oldSprintDoc = oldSprint
+          ? await this.sprintModel.findById(oldSprint).select("_id name").lean()
+          : null
+        const newSprintDoc = await this.sprintModel
+          .findById(input.sprint)
+          .select("_id name")
+          .lean()
+        const changedByProfile = await this.profileModel
+          .findById(userId)
+          .select("_id name avatarUrl")
+          .lean()
+
+        await this.taskLogsService.createLog({
+          taskId: taskId,
+          type: "sprint_change",
+          userId: userId,
+          meta: {
+            oldSprint: oldSprintDoc
+              ? {
+                  _id: oldSprintDoc._id.toString(),
+                  name: oldSprintDoc.name
+                }
+              : null,
+            newSprint: newSprintDoc
+              ? {
+                  _id: newSprintDoc._id.toString(),
+                  name: newSprintDoc.name
+                }
+              : null,
+            changedBy: changedByProfile
+              ? {
+                  _id: changedByProfile._id.toString(),
+                  name: changedByProfile.name,
+                  avatarUrl: changedByProfile.avatarUrl
+                }
+              : null
+          }
+        })
+      } catch (error) {
+        console.error("Error creating sprint_change task log:", error)
+      }
+    }
+
+    // Tạo task log cho update_information
+    const updatedFields: string[] = []
+    const oldValues: Record<string, any> = {}
+    const newValues: Record<string, any> = {}
+
+    if (input.title && input.title !== task.title) {
+      updatedFields.push("title")
+      oldValues.title = task.title
+      newValues.title = input.title
+    }
+    if (
+      input.description !== undefined &&
+      input.description !== task.description
+    ) {
+      updatedFields.push("description")
+      oldValues.description = task.description
+      newValues.description = input.description
+    }
+    if (input.aim !== undefined && input.aim !== task.aim) {
+      updatedFields.push("aim")
+      oldValues.aim = task.aim
+      newValues.aim = input.aim
+    }
+    if (input.aimUnit && input.aimUnit !== task.aimUnit) {
+      updatedFields.push("aimUnit")
+      oldValues.aimUnit = task.aimUnit
+      newValues.aimUnit = input.aimUnit
+    }
+    if (input.progress !== undefined && input.progress !== task.progress) {
+      updatedFields.push("progress")
+      oldValues.progress = task.progress
+      newValues.progress = input.progress
+    }
+    if (input.priority && input.priority !== task.priority) {
+      updatedFields.push("priority")
+      oldValues.priority = task.priority
+      newValues.priority = input.priority
+    }
+    if (
+      input.dueDate !== undefined &&
+      input.dueDate?.toString() !== task.dueDate?.toString()
+    ) {
+      updatedFields.push("dueDate")
+      oldValues.dueDate = task.dueDate
+      newValues.dueDate = input.dueDate
+    }
+    if (
+      input.tags &&
+      JSON.stringify(input.tags) !== JSON.stringify(task.tags)
+    ) {
+      updatedFields.push("tags")
+      oldValues.tags = task.tags
+      newValues.tags = input.tags
+    }
+
+    if (updatedFields.length > 0) {
+      try {
+        await this.taskLogsService.createLog({
+          taskId: taskId,
+          type: "update_information",
+          userId: userId,
+          meta: {
+            fields: updatedFields,
+            oldValues,
+            newValues
+          }
+        })
+      } catch (error) {
+        console.error("Error creating update_information task log:", error)
+      }
+    }
+
     return updated!
   }
 
@@ -191,6 +482,7 @@ export class TasksService {
     if (task.createdBy.toString() !== userId)
       throw new ForbiddenException("Không có quyền phân công task này")
 
+    const oldAssignedTo = task.assignedTo?.toString()
     const assignedToId =
       assignedTo && Types.ObjectId.isValid(assignedTo)
         ? new Types.ObjectId(assignedTo)
@@ -201,36 +493,87 @@ export class TasksService {
       .lean<Lean<Task>>()
       .exec()
 
+    // Tạo task log cho assignment
+    if (oldAssignedTo !== assignedTo) {
+      try {
+        const oldProfile = oldAssignedTo
+          ? await this.profileModel
+              .findById(oldAssignedTo)
+              .select("_id name avatarUrl")
+              .lean()
+          : null
+        const newProfile = assignedTo
+          ? await this.profileModel
+              .findById(assignedTo)
+              .select("_id name avatarUrl")
+              .lean()
+          : null
+        const assignedByProfile = await this.profileModel
+          .findById(userId)
+          .select("_id name avatarUrl")
+          .lean()
+
+        await this.taskLogsService.createLog({
+          taskId: taskId,
+          type: "assignment",
+          userId: userId,
+          meta: {
+            oldAssignedTo: oldProfile
+              ? {
+                  _id: oldProfile._id.toString(),
+                  name: oldProfile.name,
+                  avatarUrl: oldProfile.avatarUrl
+                }
+              : null,
+            newAssignedTo: newProfile
+              ? {
+                  _id: newProfile._id.toString(),
+                  name: newProfile.name,
+                  avatarUrl: newProfile.avatarUrl
+                }
+              : null,
+            assignedBy: assignedByProfile
+              ? {
+                  _id: assignedByProfile._id.toString(),
+                  name: assignedByProfile.name,
+                  avatarUrl: assignedByProfile.avatarUrl
+                }
+              : null
+          }
+        })
+      } catch (error) {
+        console.error("Error creating assignment task log:", error)
+      }
+    }
+
     return updated!
   }
 
   async searchTasks(
     input: SearchTasksInput
-  ): Promise<{ data: Lean<Task>[]; totalPages: number }> {
+  ): Promise<{ data: Task[]; total: number }> {
     const page = Math.max(1, Number(input.page) || 1)
     const limit = Math.min(100, Math.max(1, Number(input.limit) || 20))
+    const skip = (page - 1) * limit
 
-    const match: any = {}
-
-    // Only top-level tasks (not subtasks)
-    match.parentTaskId = null
+    const filter: any = {}
 
     // Sprint filter
     if (input.sprint && Types.ObjectId.isValid(input.sprint)) {
-      match.sprint = new Types.ObjectId(input.sprint)
+      filter.sprint = new Types.ObjectId(input.sprint)
     }
 
     // Deleted filter
     if (input.deleted === true) {
-      match.deletedAt = { $ne: null }
-    } else if (input.deleted === false || input.deleted === undefined) {
-      match.deletedAt = null
+      filter.deletedAt = { $ne: null }
+    } else {
+      filter.deletedAt = null
     }
 
     // Search text filter
     if (input.searchText && input.searchText.trim()) {
       const text = input.searchText.trim()
-      match.$or = [
+      filter.$or = [
         { title: { $regex: text, $options: "i" } },
         { description: { $regex: text, $options: "i" } }
       ]
@@ -238,65 +581,49 @@ export class TasksService {
 
     // Other filters
     if (input.createdBy && Types.ObjectId.isValid(input.createdBy)) {
-      match.createdBy = new Types.ObjectId(input.createdBy)
+      filter.createdBy = new Types.ObjectId(input.createdBy)
     }
     if (input.assignedTo && Types.ObjectId.isValid(input.assignedTo)) {
-      match.assignedTo = new Types.ObjectId(input.assignedTo)
+      filter.assignedTo = new Types.ObjectId(input.assignedTo)
     }
-    if (input.priority) match.priority = input.priority
-    if (input.status) match.status = input.status
-    if (input.tags && input.tags.length > 0) {
-      match.tags = { $in: input.tags }
-    }
+    if (input.priority) filter.priority = input.priority
+    if (input.tags?.length) filter.tags = { $in: input.tags }
 
-    const pipeline: any[] = [
-      { $match: match },
-      { $sort: { createdAt: -1 as const } },
-      {
-        $facet: {
-          data: [{ $skip: (page - 1) * limit }, { $limit: limit }],
-          count: [{ $count: "total" }]
-        }
-      }
-    ]
+    const [data, total] = await Promise.all([
+      this.taskModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("assignedTo")
+        .populate("createdBy")
+        .populate("sprint")
+        .exec(),
+      this.taskModel.countDocuments(filter).exec()
+    ])
 
-    const agg = await this.taskModel.aggregate(pipeline).exec()
-    const first = agg[0] || { data: [], count: [] }
-    const total = (first.count[0]?.total as number) || 0
-    const totalPages = total > 0 ? Math.ceil(total / limit) : 0
-
-    return { data: first.data as Lean<Task>[], totalPages }
+    return { data, total }
   }
 
-  async getSubtasks(parentTaskId: string): Promise<Lean<Task>[]> {
-    if (!Types.ObjectId.isValid(parentTaskId)) return []
-
-    return this.taskModel
-      .find({
-        parentTaskId: new Types.ObjectId(parentTaskId),
-        deletedAt: null
-      })
-      .sort({ createdAt: -1 })
-      .lean<Lean<Task>[]>()
-      .exec()
-  }
-
-  async getTaskById(taskId: string): Promise<Lean<Task> | null> {
+  async getTaskById(taskId: string): Promise<Task | null> {
     if (!Types.ObjectId.isValid(taskId)) return null
     return this.taskModel
       .findOne({ _id: taskId, deletedAt: null })
-      .lean<Lean<Task>>()
+      .populate("assignedTo")
+      .populate("createdBy")
+      .populate("sprint")
       .exec()
   }
 
-  async getCurrentSprintUserStats(userId: string): Promise<{
-    new: number
-    in_progress: number
-    reviewing: number
-    completed: number
+  async getCurrentSprintUserStats(profileId: string): Promise<{
+    totalTasks: number
+    totalUnits: number
+    completedTasks: number
+    completedUnits: number
+    totalEstimateHours: number
   }> {
-    if (!Types.ObjectId.isValid(userId)) {
-      throw new BadRequestException("User ID không hợp lệ")
+    if (!Types.ObjectId.isValid(profileId)) {
+      throw new BadRequestException("Profile ID không hợp lệ")
     }
 
     // Lấy sprint hiện tại
@@ -305,106 +632,133 @@ export class TasksService {
       .exec()
 
     if (!currentSprint) {
-      return { new: 0, in_progress: 0, reviewing: 0, completed: 0 }
+      return {
+        totalTasks: 0,
+        totalUnits: 0,
+        completedTasks: 0,
+        completedUnits: 0,
+        totalEstimateHours: 0
+      }
     }
 
     const pipeline = [
       {
         $match: {
           sprint: currentSprint._id,
-          assignedTo: new Types.ObjectId(userId),
+          assignedTo: new Types.ObjectId(profileId),
           deletedAt: null
         }
       },
       {
         $group: {
-          _id: "$status",
-          count: { $sum: 1 }
+          _id: null,
+          totalTasks: { $sum: 1 },
+          totalUnits: { $sum: "$aim" },
+          completedTasks: {
+            $sum: {
+              $cond: [{ $eq: ["$progress", "$aim"] }, 1, 0]
+            }
+          },
+          completedUnits: { $sum: "$progress" },
+          totalEstimateHours: { $sum: { $ifNull: ["$estimateHours", 0] } }
         }
       }
     ]
 
     const result = await this.taskModel.aggregate(pipeline).exec()
 
-    const stats = { new: 0, in_progress: 0, reviewing: 0, completed: 0 }
-    result.forEach((item: any) => {
-      if (item._id in stats) {
-        stats[item._id as keyof typeof stats] = item.count
+    if (result.length === 0) {
+      return {
+        totalTasks: 0,
+        totalUnits: 0,
+        completedTasks: 0,
+        completedUnits: 0,
+        totalEstimateHours: 0
       }
-    })
+    }
 
-    return stats
+    const stats = result[0]
+    return {
+      totalTasks: stats.totalTasks,
+      totalUnits: stats.totalUnits,
+      completedTasks: stats.completedTasks,
+      completedUnits: stats.completedUnits,
+      totalEstimateHours: stats.totalEstimateHours || 0
+    }
   }
 
   async getCurrentSprintAllUsersStats(): Promise<{
-    users: Array<{
-      userId: Types.ObjectId
-      completed: number
-      reviewing: number
-      total: number
-      completionRate: number
-    }>
+    users: Array<UserSprintStat>
   }> {
     // Lấy sprint hiện tại
     const currentSprint = await this.sprintModel
       .findOne({ isCurrent: true, deletedAt: null })
+      .lean()
       .exec()
 
-    if (!currentSprint) {
-      return { users: [] }
+    if (!currentSprint?._id) return { users: [] }
+
+    // Lấy tasks của sprint hiện tại + populate assignedTo (Profile)
+    const tasks = await this.taskModel
+      .find({
+        sprint: currentSprint._id,
+        assignedTo: { $ne: null },
+        deletedAt: null
+      })
+      .select("assignedTo aim progress estimateHours") // thêm estimateHours
+      .populate({
+        path: "assignedTo",
+        model: "Profile",
+        select: "_id name avatarUrl" // tuỳ bạn muốn fields nào
+      })
+      .lean<
+        Array<
+          Pick<Task, "aim" | "progress" | "estimateHours"> & {
+            assignedTo: Lean<Profile> | null
+          }
+        >
+      >()
+      .exec()
+
+    // Group trong Node
+    const map = new Map<string, UserSprintStat>()
+
+    for (const t of tasks) {
+      const profile = t.assignedTo
+      if (!profile) continue
+
+      const key = String(profile._id)
+      let stat = map.get(key)
+
+      if (!stat) {
+        stat = {
+          profile,
+          totalTasks: 0,
+          totalUnits: 0,
+          completedTasks: 0,
+          completedUnits: 0,
+          totalEstimateHours: 0
+        }
+        map.set(key, stat)
+      }
+
+      const aim = Number(t.aim ?? 0)
+      const progress = Number(t.progress ?? 0)
+      const estimateHours = Number(t.estimateHours ?? 0)
+
+      stat.totalTasks += 1
+      stat.totalUnits += aim
+      stat.completedUnits += progress
+      stat.totalEstimateHours += estimateHours
+
+      // “Completed” theo logic cũ: progress == aim
+      if (progress === aim) stat.completedTasks += 1
     }
 
-    const pipeline = [
-      {
-        $match: {
-          sprint: currentSprint._id,
-          assignedTo: { $ne: null },
-          deletedAt: null
-        }
-      },
-      {
-        $group: {
-          _id: "$assignedTo",
-          new: {
-            $sum: { $cond: [{ $eq: ["$status", "new"] }, 1, 0] }
-          },
-          in_progress: {
-            $sum: { $cond: [{ $eq: ["$status", "in_progress"] }, 1, 0] }
-          },
-          completed: {
-            $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] }
-          },
-          reviewing: {
-            $sum: { $cond: [{ $eq: ["$status", "reviewing"] }, 1, 0] }
-          },
-          total: { $sum: 1 }
-        }
-      },
-      {
-        $project: {
-          userId: "$_id",
-          _id: 0,
-          new: 1,
-          in_progress: 1,
-          completed: 1,
-          reviewing: 1,
-          total: 1,
-          completionRate: {
-            $cond: [
-              { $eq: ["$total", 0] },
-              0,
-              { $multiply: [{ $divide: ["$completed", "$total"] }, 100] }
-            ]
-          }
-        }
-      },
-      {
-        $sort: { completionRate: -1 as const }
-      }
-    ]
+    const users = Array.from(map.values()).sort(
+      (a, b) => b.completedUnits - a.completedUnits
+    )
 
-    const result = await this.taskModel.aggregate(pipeline).exec()
-
-    return { users: result }
+    return { users }
   }
 }

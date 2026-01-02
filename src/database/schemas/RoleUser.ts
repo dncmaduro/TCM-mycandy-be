@@ -1,24 +1,29 @@
-import { Document, model, Schema } from "mongoose"
+import { Document, model, Schema, Types } from "mongoose"
 
-export type Role = "user" | "admin" | "superadmin"
+export type Role = "user" | "subadmin" | "admin" | "superadmin"
 
 export interface RoleUser extends Document {
-  userId: string
-  role: Role
+  profileId: Types.ObjectId
+  roles: Role[]
 }
 
 export const RoleUserSchema = new Schema<RoleUser>({
-  userId: { type: String, required: true, index: true, unique: true },
-  role: {
-    type: String,
+  profileId: {
+    type: Schema.Types.ObjectId,
+    ref: "Profile",
+    required: true,
+    index: true,
+    unique: true
+  },
+  roles: {
+    type: [String],
     required: true,
     enum: ["user", "admin", "superadmin"],
-    default: "user",
+    default: ["user"],
     index: true
   }
 })
 
-// One role per user enforced by unique userId
-// Remove composite unique index
+// One document per profile, but can have multiple roles
 
 export const RoleUserModel = model<RoleUser>("RoleUser", RoleUserSchema)

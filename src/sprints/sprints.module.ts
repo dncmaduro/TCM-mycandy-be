@@ -7,6 +7,7 @@ import { TaskSchema } from "../database/schemas/Task"
 import { JwtModule } from "@nestjs/jwt"
 import { AuthModule } from "../auth/auth.module"
 import { RoleUserSchema } from "../database/schemas/RoleUser"
+import { NotificationsModule } from "../notifications/notifications.module"
 
 @Module({
   imports: [
@@ -16,7 +17,8 @@ import { RoleUserSchema } from "../database/schemas/RoleUser"
       { name: "RoleUser", schema: RoleUserSchema }
     ]),
     JwtModule,
-    AuthModule
+    AuthModule,
+    NotificationsModule
   ],
   controllers: [SprintsController],
   providers: [SprintsService],

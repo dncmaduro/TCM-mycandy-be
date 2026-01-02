@@ -33,7 +33,7 @@ export class TimeRequestsController {
       minutes?: number
       date: string
     },
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
     const request = await this.timeRequestsService.createRequest(
       {
@@ -42,7 +42,7 @@ export class TimeRequestsController {
         minutes: body.minutes,
         date: new Date(body.date)
       },
-      user.sub
+      user.profileId
     )
     return { request }
   }
@@ -57,7 +57,7 @@ export class TimeRequestsController {
       minutes?: number
       date?: string
     },
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
     const request = await this.timeRequestsService.updateRequest(
       id,
@@ -67,17 +67,17 @@ export class TimeRequestsController {
         minutes: body.minutes,
         date: body.date ? new Date(body.date) : undefined
       },
-      user.sub
+      user.profileId
     )
     return { request }
   }
 
   @Get("my")
   async getOwnRequests(
+    @CurrentUser() user: { profileId: string },
     @Query("page") page?: string,
     @Query("limit") limit?: string,
-    @Query("deleted") deleted?: string,
-    @CurrentUser() user?: { sub: string }
+    @Query("deleted") deleted?: string
   ) {
     const deletedBool =
       deleted === "true" ? true : deleted === "false" ? false : undefined
@@ -88,7 +88,24 @@ export class TimeRequestsController {
         limit: limit ? parseInt(limit, 10) : undefined,
         deleted: deletedBool
       },
-      user.sub
+      user.profileId
+    )
+  }
+
+  @Get("pending-review")
+  async getPendingRequestsForReviewer(
+    @CurrentUser() user: { profileId: string },
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+    @Query("status") status?: string
+  ) {
+    return this.timeRequestsService.getPendingRequestsForReviewer(
+      user.profileId,
+      {
+        page: page ? parseInt(page, 10) : undefined,
+        limit: limit ? parseInt(limit, 10) : undefined,
+        status
+      }
     )
   }
 
@@ -110,31 +127,27 @@ export class TimeRequestsController {
   }
 
   @Post(":id/approve")
-  @UseGuards(RolesGuard)
-  @Roles("admin", "superadmin")
   async approveRequest(
     @Param("id") id: string,
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
-    return this.timeRequestsService.reviewRequest(id, "approve", user.sub)
+    return this.timeRequestsService.reviewRequest(id, "approve", user.profileId)
   }
 
   @Post(":id/reject")
-  @UseGuards(RolesGuard)
-  @Roles("admin", "superadmin")
   async rejectRequest(
     @Param("id") id: string,
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
-    return this.timeRequestsService.reviewRequest(id, "reject", user.sub)
+    return this.timeRequestsService.reviewRequest(id, "reject", user.profileId)
   }
 
   @Delete(":id")
   async deleteRequest(
     @Param("id") id: string,
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
-    return this.timeRequestsService.deleteRequest(id, user.sub)
+    return this.timeRequestsService.deleteRequest(id, user.profileId)
   }
 
   @Get(":id")
@@ -147,7 +160,7 @@ export class TimeRequestsController {
   async getOwnRequestsByMonth(
     @Param("month") month: string,
     @Param("year") year: string,
-    @CurrentUser() user: { sub: string }
+    @CurrentUser() user: { profileId: string }
   ) {
     const monthNum = parseInt(month, 10)
     const yearNum = parseInt(year, 10)
@@ -155,7 +168,7 @@ export class TimeRequestsController {
     return this.timeRequestsService.getOwnRequestsByMonth(
       monthNum,
       yearNum,
-      user.sub
+      user.profileId
     )
   }
 }
