@@ -1,21 +1,14 @@
 import { Document, model, Schema, Types } from "mongoose"
 
-export type TaskStatus =
-  | "new"
-  | "in_progress"
-  | "completed"
-  | "archived"
-  | "canceled"
-  | "reviewing"
-
 export type TaskPriority = "low" | "medium" | "high" | "urgent"
 
 export interface Task extends Document {
   title: string
   description?: string
   sprint: Types.ObjectId
-  parentTaskId?: Types.ObjectId | null
-  status: TaskStatus
+  aim: number
+  aimUnit: string
+  progress: number
   priority: TaskPriority
   createdBy: Types.ObjectId
   assignedTo?: Types.ObjectId | null
@@ -25,6 +18,8 @@ export interface Task extends Document {
   updatedAt: Date
   deletedAt?: Date | null
   tags?: string[]
+  estimateHours?: number
+  evaluation?: string
 }
 
 export const TaskSchema = new Schema<Task>(
@@ -37,20 +32,9 @@ export const TaskSchema = new Schema<Task>(
       required: true,
       index: true
     },
-    parentTaskId: { type: Schema.Types.ObjectId, ref: "Task", default: null },
-    status: {
-      type: String,
-      enum: [
-        "new",
-        "in_progress",
-        "completed",
-        "archived",
-        "canceled",
-        "reviewing"
-      ],
-      default: "new",
-      index: true
-    },
+    aim: { type: Number, required: true, default: 0 },
+    aimUnit: { type: String, required: true, default: "hours" },
+    progress: { type: Number, required: true, default: 0 },
     priority: {
       type: String,
       enum: ["low", "medium", "high", "urgent"],
@@ -59,20 +43,22 @@ export const TaskSchema = new Schema<Task>(
     },
     createdBy: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: "Profile",
       required: true,
       index: true
     },
     assignedTo: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: "Profile",
       default: null,
       index: true
     },
     dueDate: { type: Date, default: null, index: true },
     completedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null, index: true },
-    tags: { type: [String], default: [] }
+    tags: { type: [String], default: [] },
+    estimateHours: { type: Number, default: null },
+    evaluation: { type: String, default: null, trim: true }
   },
   {
     timestamps: true, // createdAt, updatedAt

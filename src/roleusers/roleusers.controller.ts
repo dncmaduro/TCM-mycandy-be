@@ -23,26 +23,47 @@ export class RoleUsersController {
   @Get("me")
   @UseGuards(JwtAuthGuard)
   @Roles()
-  async getOwnRole(@CurrentUser() user: { sub: string }) {
-    const role = await this.roleUsersService.getRole(user.sub)
-    return { userId: user.sub, role }
+  async getOwnRoles(@CurrentUser() user: { profileId: string }) {
+    const roles = await this.roleUsersService.getRoles(user.profileId)
+    return { profileId: user.profileId, roles }
   }
 
-  @Get(":userId")
-  async getRole(@Param("userId") userId: string) {
-    const role = await this.roleUsersService.getRole(userId)
-    return { userId, role }
+  @Get(":profileId")
+  async getRoles(@Param("profileId") profileId: string) {
+    const roles = await this.roleUsersService.getRoles(profileId)
+    return { profileId, roles }
   }
 
-  @Post(":userId")
-  async setRole(@Param("userId") userId: string, @Body() body: { role: Role }) {
-    const role = await this.roleUsersService.setRole(userId, body.role)
-    return { userId, role }
+  @Post(":profileId/add-role")
+  async addRole(
+    @Param("profileId") profileId: string,
+    @Body() body: { role: Role }
+  ) {
+    const roles = await this.roleUsersService.setRole(profileId, body.role)
+    return { profileId, roles }
   }
 
-  @Delete(":userId")
-  async removeRole(@Param("userId") userId: string) {
-    const res = await this.roleUsersService.removeRole(userId)
-    return { userId, ...res }
+  @Post(":profileId/set-roles")
+  async setRoles(
+    @Param("profileId") profileId: string,
+    @Body() body: { roles: Role[] }
+  ) {
+    const roles = await this.roleUsersService.setRoles(profileId, body.roles)
+    return { profileId, roles }
+  }
+
+  @Delete(":profileId/:role")
+  async removeRole(
+    @Param("profileId") profileId: string,
+    @Param("role") role: Role
+  ) {
+    const res = await this.roleUsersService.removeRole(profileId, role)
+    return { profileId, ...res }
+  }
+
+  @Delete(":profileId")
+  async removeAllRoles(@Param("profileId") profileId: string) {
+    const res = await this.roleUsersService.removeRole(profileId)
+    return { profileId, ...res }
   }
 }
